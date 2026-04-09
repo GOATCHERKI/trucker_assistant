@@ -45,6 +45,16 @@ function App() {
     [unsafePoints, warnings],
   );
 
+  const panelWarnings = useMemo(
+    () =>
+      unsafeMarkers.map((marker) => ({
+        id: marker.id,
+        type: marker.type,
+        message: marker.message,
+      })),
+    [unsafeMarkers],
+  );
+
   const selectionHint = useMemo(() => {
     if (selectionMode === 'start') {
       return 'Click on map to set the start point.';
@@ -73,8 +83,8 @@ function App() {
     setError('');
   }
 
-  function handleWarningClick(warningId) {
-    setFocusedWarningId(warningId);
+  function handleWarningSelect(warning) {
+    setFocusedWarningId(warning?.id ?? null);
   }
 
   async function handleRouteRequest(event) {
@@ -163,10 +173,8 @@ function App() {
         {error && <p className="border border-red-300 bg-red-50 text-red-900 rounded-xl px-2.5 py-2 m-0">{error}</p>}
 
         <WarningsPanel
-          unsafeMarkers={unsafeMarkers}
-          routeMeta={routeMeta}
-          focusedWarningId={focusedWarningId}
-          onWarningClick={handleWarningClick}
+          warnings={panelWarnings}
+          onSelectWarning={handleWarningSelect}
         />
       </aside>
 

@@ -11,6 +11,8 @@ const OVERPASS_FALLBACK_URLS = process.env.OVERPASS_FALLBACK_URLS
 
 // All URLs to attempt (primary first, then fallbacks)
 const ALL_OVERPASS_URLS = [OVERPASS_URL, ...OVERPASS_FALLBACK_URLS];
+const OVERPASS_TIMEOUT_MS = Number(process.env.OVERPASS_TIMEOUT_MS) || 15000;
+const OVERPASS_MAX_RETRIES = Number(process.env.OVERPASS_MAX_RETRIES) || 2;
 
 function buildOverpassQuery([minLon, minLat, maxLon, maxLat]) {
   return `
@@ -19,20 +21,11 @@ function buildOverpassQuery([minLon, minLat, maxLon, maxLat]) {
       way["highway"]["maxheight"](${minLat},${minLon},${maxLat},${maxLon});
       way["highway"]["maxweight"](${minLat},${minLon},${maxLat},${maxLon});
     );
-    (._;>;);
-    out body;
+    out tags geom;
   `;
 }
 
 function mapOverpassToRoads(elements) {
-  const nodeMap = new Map();
-
-  for (const element of elements) {
-    if (element.type === "node") {
-      nodeMap.set(element.id, [element.lat, element.lon]);
-    }
-  }
-
   const roads = [];
   for (const element of elements) {
     if (element.type !== "way") {
@@ -45,9 +38,7 @@ function mapOverpassToRoads(elements) {
       continue;
     }
 
-    const geometry = (element.nodes || [])
-      .map((nodeId) => nodeMap.get(nodeId))
-      .filter(Boolean);
+    const geometry = (element.geometry || []).map((point) => [point.lat, point.lon]);
 
     roads.push({
       id: element.id,
@@ -65,34 +56,37 @@ async function getRoadsInBbox(bbox) {
   const query = buildOverpassQuery(bbox);
 
   let lastError;
-  for (const url of ALL_OVERPASS_URLS) {
-    try {
-      const response = await axios.post(url, query, {
-        headers: {
-          "Content-Type": "text/plain",
-        },
-        timeout: 30000, // 30 second timeout per attempt
-      });
-      return mapOverpassToRoads(response.data.elements || []);
-    } catch (error) {
-      lastError = error;
-      const status = error.response?.status;
-      // Retry on 5xx errors (server errors), timeouts, or network errors
-      // Don't retry on 4xx errors (client errors, which won't change with a retry)
-      if (status && status < 500) {
-        throw error; // No point retrying 4xx errors
+  for (let attempt = 1; attempt <= OVERPASS_MAX_RETRIES; attempt += 1) {
+    for (const url of ALL_OVERPASS_URLS) {
+      try {
+        const response = await axios.post(url, query, {
+          headers: {
+            "Content-Type": "text/plain",
+          },
+          timeout: OVERPASS_TIMEOUT_MS,
+        });
+        return mapOverpassToRoads(response.data.elements || []);
+      } catch (error) {
+        lastError = error;
+        const status = error.response?.status;
+        // Don't retry 4xx client-side errors on other mirrors.
+        if (status && status < 500) {
+          throw error;
+        }
+
+        console.warn(
+          `Overpass API failed at ${url} (attempt ${attempt}/${OVERPASS_MAX_RETRIES}): ${status || error.message}`,
+        );
       }
-      // Log and continue to next URL
-      console.warn(
-        `Overpass API failed at ${url}: ${status || error.message}. Trying next URL...`,
-      );
     }
   }
 
-  // All URLs failed
-  throw new Error(
-    `All Overpass API servers failed. Last error: ${lastError?.message}`,
+  // Degrade gracefully instead of failing route calculation entirely.
+  console.error(
+    `All Overpass API servers failed after ${OVERPASS_MAX_RETRIES} attempt(s). Returning empty constraints. Last error: ${lastError?.message}`,
   );
+
+  return [];
 }
 
 async function getRoadConstraintsForRoute(routeCoordinatesLonLat) {

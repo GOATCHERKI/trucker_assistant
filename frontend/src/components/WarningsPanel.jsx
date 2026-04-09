@@ -1,100 +1,88 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
-function formatDistance(distanceMeters) {
-  if (!Number.isFinite(distanceMeters)) {
-    return '-';
+const INITIAL_VISIBLE_COUNT = 5;
+
+function WarningsPanel({ warnings = [], onSelectWarning }) {
+  const [selectedWarningId, setSelectedWarningId] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const summary = useMemo(() => {
+    return warnings.reduce(
+      (acc, warning) => {
+        if (warning.type === 'height') {
+          acc.height += 1;
+        } else if (warning.type === 'weight') {
+          acc.weight += 1;
+        }
+        return acc;
+      },
+      { height: 0, weight: 0 },
+    );
+  }, [warnings]);
+
+  const visibleWarnings = showAll
+    ? warnings
+    : warnings.slice(0, INITIAL_VISIBLE_COUNT);
+
+  function handleSelect(warning) {
+    setSelectedWarningId(warning.id);
+    onSelectWarning?.(warning);
   }
-
-  return `${(distanceMeters / 1000).toFixed(1)} km`;
-}
-
-function formatDuration(durationSeconds) {
-  if (!Number.isFinite(durationSeconds)) {
-    return '-';
-  }
-
-  const hours = Math.floor(durationSeconds / 3600);
-  const minutes = Math.round((durationSeconds % 3600) / 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-
-  return `${minutes}m`;
-}
-
-function WarningsPanel({ unsafeMarkers, routeMeta, focusedWarningId, onWarningClick }) {
-  const groupedIssues = useMemo(() => {
-    const groups = new Map();
-
-    for (const marker of unsafeMarkers) {
-      const key = `${marker.type}-${marker.shortMessage}`;
-
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          type: marker.type,
-          title: marker.shortMessage,
-          markerIds: [],
-        });
-      }
-
-      groups.get(key).markerIds.push(marker.id);
-    }
-
-    return Array.from(groups.values());
-  }, [unsafeMarkers]);
-
-  const markerById = useMemo(
-    () => Object.fromEntries(unsafeMarkers.map((marker) => [marker.id, marker])),
-    [unsafeMarkers],
-  );
 
   return (
-    <section className="bg-white border border-slate-300 rounded-2xl p-2.5 shadow-md">
-      <h2 className="mb-2.5 text-lg">Safety Warnings</h2>
-      <p className="text-slate-500 my-1 mb-2.5">
-        {unsafeMarkers.length
-          ? `${unsafeMarkers.length} issue${unsafeMarkers.length > 1 ? 's' : ''} found on the map.`
-          : 'No restriction violations detected.'}
-      </p>
+    <section className="bg-white border border-slate-300 rounded-2xl p-3 shadow-md">
+      <h2 className="mb-2 text-lg font-semibold text-slate-900">Safety Warnings</h2>
 
-      <div className="space-y-1">
-        <p>Distance: <strong>{formatDistance(routeMeta?.distanceMeters)}</strong></p>
-        <p>ETA: <strong>{formatDuration(routeMeta?.durationSeconds)}</strong></p>
-        <p>Roads checked: <strong>{routeMeta?.roadsAnalyzed ?? '-'}</strong></p>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Height Issues</p>
+          <p className="text-xl font-semibold text-slate-900">{summary.height}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Weight Issues</p>
+          <p className="text-xl font-semibold text-slate-900">{summary.weight}</p>
+        </div>
       </div>
 
-      <div className="mt-2.5 space-y-2">
-        {groupedIssues.map((group) => (
-          <div key={group.key} className="rounded-xl border border-slate-200 px-2.5 py-2">
-            <p className="text-sm font-semibold text-slate-900">
-              {group.title}
-              <span className="ml-2 text-slate-500 font-normal">({group.markerIds.length})</span>
-            </p>
-            <ul className="mt-1.5 ml-4 space-y-1">
-              {group.markerIds.map((markerId, index) => {
-                const marker = markerById[markerId];
-                const isFocused = focusedWarningId === markerId;
+      {!warnings.length && (
+        <p className="text-sm text-slate-500">No restriction violations detected.</p>
+      )}
 
-                return (
-                  <li key={markerId}>
-                    <button
-                      type="button"
-                      onClick={() => onWarningClick?.(markerId)}
-                      className={`text-left w-full bg-transparent border-none p-0 cursor-pointer text-sm ${
-                        isFocused ? 'text-red-700 font-semibold' : 'text-gray-700'
-                      }`}
-                    >
-                      #{index + 1} at {marker.position[0].toFixed(5)}, {marker.position[1].toFixed(5)}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </div>
+      <ul className="space-y-2">
+        {visibleWarnings.map((warning) => {
+          const isSelected = selectedWarningId === warning.id;
+          const icon = warning.type === 'height' ? '🚫' : '⚠️';
+
+          return (
+            <li key={warning.id}>
+              <button
+                type="button"
+                onClick={() => handleSelect(warning)}
+                className={`w-full text-left rounded-xl border px-3 py-2.5 transition ${
+                  isSelected
+                    ? 'border-rose-300 bg-rose-50 shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <p className="text-sm font-medium text-slate-900">
+                  <span className="mr-2" aria-hidden="true">{icon}</span>
+                  {warning.message}
+                </p>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {warnings.length > INITIAL_VISIBLE_COUNT && (
+        <button
+          type="button"
+          onClick={() => setShowAll((current) => !current)}
+          className="mt-3 text-sm font-medium text-teal-700 hover:text-teal-800"
+        >
+          {showAll ? 'Show less' : `Show all (${warnings.length})`}
+        </button>
+      )}
     </section>
   );
 }
