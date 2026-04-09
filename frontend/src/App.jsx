@@ -16,7 +16,8 @@ function App() {
     weight: 18,
   });
 
-  const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const [fastestRouteCoordinates, setFastestRouteCoordinates] = useState([]);
+  const [safeRouteCoordinates, setSafeRouteCoordinates] = useState([]);
   const [unsafePoints, setUnsafePoints] = useState([]);
   const [warnings, setWarnings] = useState([]);
   const [focusedWarningId, setFocusedWarningId] = useState(null);
@@ -85,7 +86,8 @@ function App() {
     setStart(null);
     setEnd(null);
     setSelectionMode('start');
-    setRouteCoordinates([]);
+    setFastestRouteCoordinates([]);
+    setSafeRouteCoordinates([]);
     setUnsafePoints([]);
     setWarnings([]);
     setFocusedWarningId(null);
@@ -119,8 +121,11 @@ function App() {
         truck,
       });
 
-      const mappedRoute = (result.route.geometry.coordinates || []).map(([lon, lat]) => [lat, lon]);
-      setRouteCoordinates(mappedRoute);
+      const mappedFastestRoute = (result.routes?.fastest?.geometry?.coordinates || result.route?.geometry?.coordinates || []).map(([lon, lat]) => [lat, lon]);
+      const mappedSafeRoute = (result.routes?.safe?.geometry?.coordinates || []).map(([lon, lat]) => [lat, lon]);
+
+      setFastestRouteCoordinates(mappedFastestRoute);
+      setSafeRouteCoordinates(mappedSafeRoute);
 
       const uniqueUnsafePoints = [];
       const seen = new Set();
@@ -138,7 +143,8 @@ function App() {
       setFocusedWarningId(null);
     } catch (requestError) {
       setError(requestError.message || 'Failed to calculate route.');
-      setRouteCoordinates([]);
+      setFastestRouteCoordinates([]);
+      setSafeRouteCoordinates([]);
       setUnsafePoints([]);
       setWarnings([]);
       setFocusedWarningId(null);
@@ -192,7 +198,8 @@ function App() {
         <MapView
           start={start}
           end={end}
-          routeCoordinates={routeCoordinates}
+          fastestRouteCoordinates={fastestRouteCoordinates}
+          safeRouteCoordinates={safeRouteCoordinates}
           unsafeMarkers={unsafeMarkers}
           focusedMarkerId={focusedWarningId}
           onMapClick={handleMapClick}

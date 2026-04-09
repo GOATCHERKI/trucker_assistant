@@ -38,7 +38,10 @@ function mapOverpassToRoads(elements) {
       continue;
     }
 
-    const geometry = (element.geometry || []).map((point) => [point.lat, point.lon]);
+    const geometry = (element.geometry || []).map((point) => [
+      point.lat,
+      point.lon,
+    ]);
 
     roads.push({
       id: element.id,

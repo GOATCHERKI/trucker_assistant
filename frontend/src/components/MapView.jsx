@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
   MapContainer,
@@ -10,9 +10,11 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
+import MapLegend from './MapLegend';
 
 const DEFAULT_CENTER = [51.505, -0.09];
 const DEFAULT_ZOOM = 11;
+const UNSAFE_SEGMENT_THRESHOLD_METERS = 90;
 
 function MapClickHandler({ onMapClick }) {
   useMapEvents({
@@ -24,19 +26,32 @@ function MapClickHandler({ onMapClick }) {
   return null;
 }
 
-function RouteViewport({ start, end, routeCoordinates }) {
+function RouteViewport({ start, end, fastestRouteCoordinates, safeRouteCoordinates, showFastestRoute, showSafeRoute }) {
   const map = useMap();
 
   useEffect(() => {
-    if (routeCoordinates.length > 1) {
-      map.fitBounds(routeCoordinates, { padding: [30, 30] });
+    const activeRouteCoordinates = [
+      ...(showFastestRoute ? fastestRouteCoordinates : []),
+      ...(showSafeRoute ? safeRouteCoordinates : []),
+    ];
+
+    if (activeRouteCoordinates.length > 1) {
+      map.fitBounds(activeRouteCoordinates, { padding: [30, 30] });
       return;
     }
 
     if (start && end) {
       map.fitBounds([start, end], { padding: [40, 40] });
     }
-  }, [map, start, end, routeCoordinates]);
+  }, [
+    map,
+    start,
+    end,
+    fastestRouteCoordinates,
+    safeRouteCoordinates,
+    showFastestRoute,
+    showSafeRoute,
+  ]);
 
   return null;
 }
@@ -69,8 +84,72 @@ function getMarkerPopupIcon(type) {
   return '❗';
 }
 
-function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId, onMapClick, onWarningPopupClose }) {
+function toProjectedPoint([lat, lon], referenceLat) {
+  const latRad = (referenceLat * Math.PI) / 180;
+  const metersPerDegLat = 111320;
+  const metersPerDegLon = 111320 * Math.cos(latRad);
+
+  return {
+    x: lon * metersPerDegLon,
+    y: lat * metersPerDegLat,
+  };
+}
+
+function pointToSegmentDistanceMeters(point, segmentStart, segmentEnd) {
+  const referenceLat = (segmentStart[0] + segmentEnd[0]) / 2;
+  const p = toProjectedPoint(point, referenceLat);
+  const a = toProjectedPoint(segmentStart, referenceLat);
+  const b = toProjectedPoint(segmentEnd, referenceLat);
+
+  const abX = b.x - a.x;
+  const abY = b.y - a.y;
+  const abLengthSquared = abX * abX + abY * abY;
+
+  if (!abLengthSquared) {
+    const dx = p.x - a.x;
+    const dy = p.y - a.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * abX + (p.y - a.y) * abY) / abLengthSquared));
+  const closestX = a.x + t * abX;
+  const closestY = a.y + t * abY;
+  const dx = p.x - closestX;
+  const dy = p.y - closestY;
+
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function MapView({ start, end, fastestRouteCoordinates, safeRouteCoordinates, unsafeMarkers, focusedMarkerId, onMapClick, onWarningPopupClose }) {
   const markerRefs = useRef({});
+  const [showFastestRoute, setShowFastestRoute] = useState(true);
+  const [showSafeRoute, setShowSafeRoute] = useState(true);
+
+  const unsafePoints = useMemo(
+    () => unsafeMarkers.map((marker) => marker.position),
+    [unsafeMarkers],
+  );
+
+  const fastestRouteSegments = useMemo(() => {
+    if (fastestRouteCoordinates.length < 2) {
+      return [];
+    }
+
+    return fastestRouteCoordinates.slice(0, -1).map((startPoint, index) => {
+      const endPoint = fastestRouteCoordinates[index + 1];
+      const isUnsafe = unsafePoints.some(
+        (unsafePoint) =>
+          pointToSegmentDistanceMeters(unsafePoint, startPoint, endPoint) <=
+          UNSAFE_SEGMENT_THRESHOLD_METERS,
+      );
+
+      return {
+        id: `fastest-segment-${index}`,
+        positions: [startPoint, endPoint],
+        isUnsafe,
+      };
+    });
+  }, [fastestRouteCoordinates, unsafePoints]);
 
   const startIcon = useMemo(
     () =>
@@ -135,7 +214,14 @@ function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId,
       />
 
       <MapClickHandler onMapClick={onMapClick} />
-      <RouteViewport start={start} end={end} routeCoordinates={routeCoordinates} />
+      <RouteViewport
+        start={start}
+        end={end}
+        fastestRouteCoordinates={fastestRouteCoordinates}
+        safeRouteCoordinates={safeRouteCoordinates}
+        showFastestRoute={showFastestRoute}
+        showSafeRoute={showSafeRoute}
+      />
       <FocusOnUnsafeMarker focusedMarker={focusedMarker} />
 
       {start && (
@@ -152,7 +238,24 @@ function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId,
           </Tooltip>
         </Marker>
       )}
-      {routeCoordinates.length > 1 && <Polyline positions={routeCoordinates} pathOptions={{ color: '#0e7490', weight: 5 }} />}
+      {showFastestRoute &&
+        fastestRouteSegments.map((segment) => (
+          <Polyline
+            key={segment.id}
+            positions={segment.positions}
+            pathOptions={{
+              color: segment.isUnsafe ? '#dc2626' : 'blue',
+              weight: segment.isUnsafe ? 7 : 6,
+              opacity: segment.isUnsafe ? 0.95 : 0.85,
+            }}
+          />
+        ))}
+      {showSafeRoute && safeRouteCoordinates.length > 1 && (
+        <Polyline
+          positions={safeRouteCoordinates}
+          pathOptions={{ color: 'green', weight: 5, opacity: 0.75, dashArray: '10 8' }}
+        />
+      )}
       {unsafeMarkers.map((marker) => (
         <Marker
           key={marker.id}
@@ -181,6 +284,14 @@ function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId,
           </Popup>
         </Marker>
       ))}
+
+      <MapLegend
+        showFastestRoute={showFastestRoute}
+        showSafeRoute={showSafeRoute}
+        onToggleFastestRoute={setShowFastestRoute}
+        onToggleSafeRoute={setShowSafeRoute}
+        safeRouteAvailable={safeRouteCoordinates.length > 1}
+      />
     </MapContainer>
   );
 }
