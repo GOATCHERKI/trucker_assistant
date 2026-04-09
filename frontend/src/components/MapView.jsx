@@ -69,7 +69,7 @@ function getMarkerPopupIcon(type) {
   return '❗';
 }
 
-function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId, onMapClick }) {
+function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId, onMapClick, onWarningPopupClose }) {
   const markerRefs = useRef({});
 
   const startIcon = useMemo(
@@ -158,6 +158,9 @@ function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId,
           key={marker.id}
           position={marker.position}
           icon={unsafeIcon}
+          eventHandlers={{
+            popupclose: () => onWarningPopupClose?.(marker.id),
+          }}
           ref={(ref) => {
             if (ref) {
               markerRefs.current[marker.id] = ref;

@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 
 const INITIAL_VISIBLE_COUNT = 5;
 
-function WarningsPanel({ warnings = [], onSelectWarning }) {
-  const [selectedWarningId, setSelectedWarningId] = useState(null);
+function WarningsPanel({ warnings = [], selectedWarningId = null, onSelectWarning }) {
   const [showAll, setShowAll] = useState(false);
 
   const summary = useMemo(() => {
@@ -25,7 +24,6 @@ function WarningsPanel({ warnings = [], onSelectWarning }) {
     : warnings.slice(0, INITIAL_VISIBLE_COUNT);
 
   function handleSelect(warning) {
-    setSelectedWarningId(warning.id);
     onSelectWarning?.(warning);
   }
 

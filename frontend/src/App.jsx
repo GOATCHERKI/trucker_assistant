@@ -96,6 +96,12 @@ function App() {
     setFocusedWarningId(warning?.id ?? null);
   }
 
+  function handleWarningPopupClose(closedMarkerId) {
+    setFocusedWarningId((currentId) =>
+      currentId === closedMarkerId ? null : currentId,
+    );
+  }
+
   async function handleRouteRequest(event) {
     event.preventDefault();
     setError('');
@@ -177,6 +183,7 @@ function App() {
 
         <WarningsPanel
           warnings={panelWarnings}
+          selectedWarningId={focusedWarningId}
           onSelectWarning={handleWarningSelect}
         />
       </aside>
@@ -189,6 +196,7 @@ function App() {
           unsafeMarkers={unsafeMarkers}
           focusedMarkerId={focusedWarningId}
           onMapClick={handleMapClick}
+          onWarningPopupClose={handleWarningPopupClose}
         />
       </main>
     </div>
