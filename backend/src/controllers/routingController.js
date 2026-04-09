@@ -56,13 +56,15 @@ async function getSafeRoute(req, res, next) {
     });
 
     return res.json({
-      distance: route.distance,
-      eta: route.duration,
-      riskLevel: safety.riskLevel,
-      summary: safety.summary,
-      criticalIssues: safety.criticalIssues,
-      isSafe: safety.isSafe,
-      recommendation: safety.recommendation,
+      route: {
+        distanceMeters: route.distance,
+        durationSeconds: route.duration,
+        geometry: route.geometry,
+      },
+      safety,
+      metadata: {
+        roadsAnalyzed: roads.length,
+      },
     });
   } catch (error) {
     return next(error);
