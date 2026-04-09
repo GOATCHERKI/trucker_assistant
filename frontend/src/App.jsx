@@ -27,8 +27,7 @@ function App() {
   const unsafeMarkers = useMemo(
     () =>
       unsafePoints.map((position, index) => {
-        // Use first available warning for each marker; warnings are deduped in transformer
-        const warning = warnings[Math.min(index, warnings.length - 1)];
+        const warning = warnings.length ? warnings[index % warnings.length] : null;
         const shortMessage = warning
           ? warning.type === 'height'
             ? `Low bridge: ${warning.maxValue}m`
@@ -36,8 +35,9 @@ function App() {
           : 'Unsafe segment';
 
         return {
-          id: warning?.id ?? `point-${index}`,
+          id: `point-${index}`,
           position,
+          type: warning?.type ?? 'unknown',
           shortMessage,
           message: warning?.message ?? 'Potential restriction near this route point.',
         };
@@ -163,7 +163,7 @@ function App() {
         {error && <p className="border border-red-300 bg-red-50 text-red-900 rounded-xl px-2.5 py-2 m-0">{error}</p>}
 
         <WarningsPanel
-          warnings={warnings}
+          unsafeMarkers={unsafeMarkers}
           routeMeta={routeMeta}
           focusedWarningId={focusedWarningId}
           onWarningClick={handleWarningClick}

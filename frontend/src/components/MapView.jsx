@@ -60,6 +60,32 @@ function FocusOnUnsafeMarker({ focusedMarker }) {
 function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId, onMapClick }) {
   const markerRefs = useRef({});
 
+  const startIcon = useMemo(
+    () =>
+      new L.Icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41],
+      }),
+    [],
+  );
+
+  const endIcon = useMemo(
+    () =>
+      new L.Icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41],
+      }),
+    [],
+  );
+
   const unsafeIcon = useMemo(
     () =>
       new L.Icon({
@@ -100,8 +126,20 @@ function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId,
       <RouteViewport start={start} end={end} routeCoordinates={routeCoordinates} />
       <FocusOnUnsafeMarker focusedMarker={focusedMarker} />
 
-      {start && <Marker position={start} />}
-      {end && <Marker position={end} />}
+      {start && (
+        <Marker position={start} icon={startIcon}>
+          <Tooltip direction="top" offset={[0, -30]} opacity={0.95}>
+            Start
+          </Tooltip>
+        </Marker>
+      )}
+      {end && (
+        <Marker position={end} icon={endIcon}>
+          <Tooltip direction="top" offset={[0, -30]} opacity={0.95}>
+            Destination
+          </Tooltip>
+        </Marker>
+      )}
       {routeCoordinates.length > 1 && <Polyline positions={routeCoordinates} pathOptions={{ color: '#0e7490', weight: 5 }} />}
       {unsafeMarkers.map((marker) => (
         <Marker
