@@ -3,6 +3,7 @@ import MapView from './components/MapView';
 import TruckForm from './components/TruckForm';
 import WarningsPanel from './components/WarningsPanel';
 import { fetchSafeRoute } from './services/api';
+import { transformWarnings } from './utils/warningTransformer';
 import './App.css';
 
 function App() {
@@ -18,9 +19,31 @@ function App() {
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [unsafePoints, setUnsafePoints] = useState([]);
   const [warnings, setWarnings] = useState([]);
+  const [focusedWarningId, setFocusedWarningId] = useState(null);
   const [routeMeta, setRouteMeta] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const unsafeMarkers = useMemo(
+    () =>
+      unsafePoints.map((position, index) => {
+        // Use first available warning for each marker; warnings are deduped in transformer
+        const warning = warnings[Math.min(index, warnings.length - 1)];
+        const shortMessage = warning
+          ? warning.type === 'height'
+            ? `Low bridge: ${warning.maxValue}m`
+            : `Weight limit: ${warning.maxValue}t`
+          : 'Unsafe segment';
+
+        return {
+          id: warning?.id ?? `point-${index}`,
+          position,
+          shortMessage,
+          message: warning?.message ?? 'Potential restriction near this route point.',
+        };
+      }),
+    [unsafePoints, warnings],
+  );
 
   const selectionHint = useMemo(() => {
     if (selectionMode === 'start') {
@@ -45,8 +68,13 @@ function App() {
     setRouteCoordinates([]);
     setUnsafePoints([]);
     setWarnings([]);
+    setFocusedWarningId(null);
     setRouteMeta(null);
     setError('');
+  }
+
+  function handleWarningClick(warningId) {
+    setFocusedWarningId(warningId);
   }
 
   async function handleRouteRequest(event) {
@@ -81,7 +109,8 @@ function App() {
       }
 
       setUnsafePoints(uniqueUnsafePoints);
-      setWarnings(result.safety.warnings || []);
+      setWarnings(transformWarnings(result.safety.warnings || []));
+      setFocusedWarningId(null);
       setRouteMeta({
         distanceMeters: result.route.distanceMeters,
         durationSeconds: result.route.durationSeconds,
@@ -92,6 +121,7 @@ function App() {
       setRouteCoordinates([]);
       setUnsafePoints([]);
       setWarnings([]);
+      setFocusedWarningId(null);
       setRouteMeta(null);
     } finally {
       setLoading(false);
@@ -132,7 +162,12 @@ function App() {
 
         {error && <p className="border border-red-300 bg-red-50 text-red-900 rounded-xl px-2.5 py-2 m-0">{error}</p>}
 
-        <WarningsPanel warnings={warnings} routeMeta={routeMeta} />
+        <WarningsPanel
+          warnings={warnings}
+          routeMeta={routeMeta}
+          focusedWarningId={focusedWarningId}
+          onWarningClick={handleWarningClick}
+        />
       </aside>
 
       <main className="relative min-h-screen">
@@ -140,7 +175,8 @@ function App() {
           start={start}
           end={end}
           routeCoordinates={routeCoordinates}
-          unsafePoints={unsafePoints}
+          unsafeMarkers={unsafeMarkers}
+          focusedMarkerId={focusedWarningId}
           onMapClick={handleMapClick}
         />
       </main>

@@ -21,7 +21,7 @@ function formatDuration(durationSeconds) {
   return `${minutes}m`;
 }
 
-function WarningsPanel({ warnings, routeMeta }) {
+function WarningsPanel({ warnings, routeMeta, focusedWarningId, onWarningClick }) {
   return (
     <section className="bg-white border border-slate-300 rounded-2xl p-2.5 shadow-md">
       <h2 className="mb-2.5 text-lg">Safety Warnings</h2>
@@ -35,8 +35,16 @@ function WarningsPanel({ warnings, routeMeta }) {
 
       <ul className="mt-2.5 ml-4 space-y-1.5">
         {warnings.map((warning) => (
-          <li key={`${warning.roadId}-${warning.type}`}>
-            {warning.message}
+          <li key={warning.id}>
+            <button
+              type="button"
+              onClick={() => onWarningClick?.(warning.id)}
+              className={`text-left w-full bg-transparent border-none p-0 cursor-pointer ${
+                focusedWarningId === warning.id ? 'text-red-700 font-semibold' : 'text-gray-800'
+              }`}
+            >
+              {warning.message}
+            </button>
           </li>
         ))}
       </ul>

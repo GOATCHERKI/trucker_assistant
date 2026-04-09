@@ -4,6 +4,14 @@ const { getBoundingBoxFromRoute } = require("../utils/geo");
 const OVERPASS_URL =
   process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter";
 
+// Parse fallback URLs from env (comma-separated)
+const OVERPASS_FALLBACK_URLS = process.env.OVERPASS_FALLBACK_URLS
+  ? process.env.OVERPASS_FALLBACK_URLS.split(",").map((url) => url.trim())
+  : [];
+
+// All URLs to attempt (primary first, then fallbacks)
+const ALL_OVERPASS_URLS = [OVERPASS_URL, ...OVERPASS_FALLBACK_URLS];
+
 function buildOverpassQuery([minLon, minLat, maxLon, maxLat]) {
   return `
     [out:json][timeout:25];
@@ -56,13 +64,35 @@ function mapOverpassToRoads(elements) {
 async function getRoadsInBbox(bbox) {
   const query = buildOverpassQuery(bbox);
 
-  const response = await axios.post(OVERPASS_URL, query, {
-    headers: {
-      "Content-Type": "text/plain",
-    },
-  });
+  let lastError;
+  for (const url of ALL_OVERPASS_URLS) {
+    try {
+      const response = await axios.post(url, query, {
+        headers: {
+          "Content-Type": "text/plain",
+        },
+        timeout: 30000, // 30 second timeout per attempt
+      });
+      return mapOverpassToRoads(response.data.elements || []);
+    } catch (error) {
+      lastError = error;
+      const status = error.response?.status;
+      // Retry on 5xx errors (server errors), timeouts, or network errors
+      // Don't retry on 4xx errors (client errors, which won't change with a retry)
+      if (status && status < 500) {
+        throw error; // No point retrying 4xx errors
+      }
+      // Log and continue to next URL
+      console.warn(
+        `Overpass API failed at ${url}: ${status || error.message}. Trying next URL...`,
+      );
+    }
+  }
 
-  return mapOverpassToRoads(response.data.elements || []);
+  // All URLs failed
+  throw new Error(
+    `All Overpass API servers failed. Last error: ${lastError?.message}`,
+  );
 }
 
 async function getRoadConstraintsForRoute(routeCoordinatesLonLat) {
