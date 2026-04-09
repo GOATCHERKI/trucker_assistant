@@ -20,7 +20,6 @@ function App() {
   const [unsafePoints, setUnsafePoints] = useState([]);
   const [warnings, setWarnings] = useState([]);
   const [focusedWarningId, setFocusedWarningId] = useState(null);
-  const [routeMeta, setRouteMeta] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -56,14 +55,22 @@ function App() {
   );
 
   const selectionHint = useMemo(() => {
+    if (start && end) {
+      return 'Start and destination are locked. Clear inputs to select new points.';
+    }
+
     if (selectionMode === 'start') {
       return 'Click on map to set the start point.';
     }
 
     return 'Click on map to set the destination point.';
-  }, [selectionMode]);
+  }, [selectionMode, start, end]);
 
   function handleMapClick(latlng) {
+    if (start && end) {
+      return;
+    }
+
     if (selectionMode === 'start') {
       setStart([latlng.lat, latlng.lng]);
       setSelectionMode('end');
@@ -75,11 +82,13 @@ function App() {
   }
 
   function clearRoute() {
+    setStart(null);
+    setEnd(null);
+    setSelectionMode('start');
     setRouteCoordinates([]);
     setUnsafePoints([]);
     setWarnings([]);
     setFocusedWarningId(null);
-    setRouteMeta(null);
     setError('');
   }
 
@@ -121,18 +130,12 @@ function App() {
       setUnsafePoints(uniqueUnsafePoints);
       setWarnings(transformWarnings(result.safety.warnings || []));
       setFocusedWarningId(null);
-      setRouteMeta({
-        distanceMeters: result.route.distanceMeters,
-        durationSeconds: result.route.durationSeconds,
-        roadsAnalyzed: result.metadata.roadsAnalyzed,
-      });
     } catch (requestError) {
       setError(requestError.message || 'Failed to calculate route.');
       setRouteCoordinates([]);
       setUnsafePoints([]);
       setWarnings([]);
       setFocusedWarningId(null);
-      setRouteMeta(null);
     } finally {
       setLoading(false);
     }
@@ -161,7 +164,7 @@ function App() {
           <p>Start: {start ? `${start[0].toFixed(5)}, ${start[1].toFixed(5)}` : '-'}</p>
           <p>End: {end ? `${end[0].toFixed(5)}, ${end[1].toFixed(5)}` : '-'}</p>
           <button type="button" className="bg-transparent border border-slate-300 text-gray-700 rounded-xl px-3.5 py-2.5 font-semibold text-sm cursor-pointer" onClick={clearRoute}>
-            Clear Route Output
+            Clear Inputs & Route
           </button>
         </section>
 

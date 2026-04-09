@@ -57,6 +57,18 @@ function FocusOnUnsafeMarker({ focusedMarker }) {
   return null;
 }
 
+function getMarkerPopupIcon(type) {
+  if (type === 'height') {
+    return '🚫';
+  }
+
+  if (type === 'weight') {
+    return '⚠️';
+  }
+
+  return '❗';
+}
+
 function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId, onMapClick }) {
   const markerRefs = useRef({});
 
@@ -157,7 +169,10 @@ function MapView({ start, end, routeCoordinates, unsafeMarkers, focusedMarkerId,
           </Tooltip>
           <Popup>
             <div className="text-sm">
-              <p className="font-semibold mb-1">Constraint Warning</p>
+              <p className="font-semibold mb-1">
+                <span className="mr-1" aria-hidden="true">{getMarkerPopupIcon(marker.type)}</span>
+                Constraint Warning
+              </p>
               <p>{marker.message}</p>
             </div>
           </Popup>
