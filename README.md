@@ -11,12 +11,6 @@
 
 Truck Tracker is a map-first route safety app for heavy vehicles. It calculates the fastest route with OSRM, checks nearby OpenStreetMap restrictions (`maxheight`, `maxweight`) through Overpass, and proposes safer detours when violations are detected.
 
-## Demo 🎬
-
-> Tip: Replace this GIF with your own screen recording for maximum impact.
-
-![Truck Tracker Demo GIF](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbTJ0M3VqenM0ODNsd2s4bDdsd3Z6M2E2ODNua3N2M2I3dWp1NzM2biZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3o7TKtnuHOHHUjR38Y/giphy.gif)
-
 ## Why This Project Matters 🚛
 
 - Helps fleet teams avoid low bridges and overweight-restricted roads.
@@ -61,13 +55,13 @@ truck-tracker/
 1. User selects start and destination points on the map and enters truck specs.
 2. Backend fetches the fastest route from OSRM.
 3. Backend queries Overpass using route bounding box for:
-	- `maxheight`
-	- `maxweight`
+   - `maxheight`
+   - `maxweight`
 4. Safety service checks route segments for truck-limit violations.
 5. If violations exist, backend attempts waypoint-based detours and returns:
-	- `routes.fastest`
-	- `routes.safe` (if viable)
-	- safety warnings and unsafe points
+   - `routes.fastest`
+   - `routes.safe` (if viable)
+   - safety warnings and unsafe points
 
 ## Prerequisites 📌
 
