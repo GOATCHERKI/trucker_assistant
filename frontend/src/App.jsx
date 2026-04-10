@@ -26,8 +26,18 @@ function App() {
 
   const unsafeMarkers = useMemo(
     () =>
-      unsafePoints.map((position, index) => {
-        const warning = warnings.length ? warnings[index % warnings.length] : null;
+      warnings
+        .map((warning, index) => {
+          const position = unsafePoints[warning.sourceIndex ?? index];
+          if (
+            !Array.isArray(position) ||
+            position.length !== 2 ||
+            !Number.isFinite(position[0]) ||
+            !Number.isFinite(position[1])
+          ) {
+            return null;
+          }
+
         const shortMessage = warning
           ? warning.type === 'height'
             ? `Low bridge: ${warning.maxValue}m`
@@ -41,7 +51,8 @@ function App() {
           shortMessage,
           message: warning?.message ?? 'Potential restriction near this route point.',
         };
-      }),
+        })
+        .filter(Boolean),
     [unsafePoints, warnings],
   );
 
@@ -121,25 +132,20 @@ function App() {
         truck,
       });
 
+      // GeoJSON [lon, lat] -> Leaflet [lat, lon].
       const mappedFastestRoute = (result.routes?.fastest?.geometry?.coordinates || result.route?.geometry?.coordinates || []).map(([lon, lat]) => [lat, lon]);
+      // GeoJSON [lon, lat] -> Leaflet [lat, lon].
       const mappedSafeRoute = (result.routes?.safe?.geometry?.coordinates || []).map(([lon, lat]) => [lat, lon]);
 
       setFastestRouteCoordinates(mappedFastestRoute);
       setSafeRouteCoordinates(mappedSafeRoute);
 
-      const uniqueUnsafePoints = [];
-      const seen = new Set();
+      // safety.unsafePoints is [lat, lon] from API and must keep original order for warning index matching.
+      const rawWarnings = result.safety.warnings || [];
+      const transformedWarnings = transformWarnings(rawWarnings);
 
-      for (const point of result.safety.unsafePoints || []) {
-        const key = `${point[0].toFixed(5)}-${point[1].toFixed(5)}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniqueUnsafePoints.push(point);
-        }
-      }
-
-      setUnsafePoints(uniqueUnsafePoints);
-      setWarnings(transformWarnings(result.safety.warnings || []));
+      setUnsafePoints(result.safety.unsafePoints || []);
+      setWarnings(transformedWarnings);
       setFocusedWarningId(null);
     } catch (requestError) {
       setError(requestError.message || 'Failed to calculate route.');

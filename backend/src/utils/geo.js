@@ -1,11 +1,14 @@
+// lonLat: [lon, lat] (GeoJSON) -> returns [lat, lon] (Leaflet-friendly)
 function toLatLon(lonLat) {
   return [lonLat[1], lonLat[0]];
 }
 
+// latLon: [lat, lon] -> returns [lon, lat] (GeoJSON)
 function toLonLat(latLon) {
   return [latLon[1], latLon[0]];
 }
 
+// a, b: [lat, lon] -> returns distance in meters
 function haversineMeters(a, b) {
   const toRad = (v) => (v * Math.PI) / 180;
   const R = 6371000;
@@ -22,6 +25,7 @@ function haversineMeters(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// pointLatLon: [lat, lon], geometryLatLon: Array<[lat, lon]>
 function isPointNearGeometry(pointLatLon, geometryLatLon, thresholdMeters) {
   for (const node of geometryLatLon) {
     if (haversineMeters(pointLatLon, node) <= thresholdMeters) {
@@ -32,6 +36,7 @@ function isPointNearGeometry(pointLatLon, geometryLatLon, thresholdMeters) {
   return false;
 }
 
+// routeCoordinatesLonLat: Array<[lon, lat]> (GeoJSON) -> returns [minLon, minLat, maxLon, maxLat]
 function getBoundingBoxFromRoute(routeCoordinatesLonLat, padding = 0.01) {
   let minLon = Infinity;
   let minLat = Infinity;

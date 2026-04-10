@@ -30,6 +30,20 @@ function evaluateRoadLimitViolations(road, truck) {
   return violations;
 }
 
+// geometry: Array<[lon, lat]> (GeoJSON) OR Array<{ lat, lon }>
+// returns: [lat, lon]
+function getRoadMidpoint(geometry) {
+  if (!geometry.length) return null;
+  const mid = geometry[Math.floor(geometry.length / 2)];
+  if (Array.isArray(mid)) {
+    return [mid[1], mid[0]]; // [lat, lon]
+  }
+  return [mid.lat, mid.lon];
+}
+
+// routeCoordinatesLonLat: Array<[lon, lat]> (GeoJSON)
+// safety.warnings[].roadMidpoint: [lat, lon] road center for detour logic
+// safety.unsafePoints: Array<[lat, lon]> route-matched points aligned by warning index
 function evaluateRouteSafety({ routeCoordinatesLonLat, roads, truck }) {
   const warnings = [];
   const unsafePoints = [];
@@ -41,20 +55,22 @@ function evaluateRouteSafety({ routeCoordinatesLonLat, roads, truck }) {
       continue;
     }
 
+    const roadGeometryLatLon = road.geometry.map((node) =>
+      Array.isArray(node) ? toLatLon(node) : [node.lat, node.lon],
+    );
+
     for (const coordinate of routeCoordinatesLonLat) {
       const routePointLatLon = toLatLon(coordinate);
 
       if (
         !isPointNearGeometry(
           routePointLatLon,
-          road.geometry,
+          roadGeometryLatLon,
           NEARBY_THRESHOLD_METERS,
         )
       ) {
         continue;
       }
-
-      unsafePoints.push(routePointLatLon);
 
       for (const violation of violations) {
         const key = `${road.id}-${violation.type}`;
@@ -65,8 +81,16 @@ function evaluateRouteSafety({ routeCoordinatesLonLat, roads, truck }) {
         warningKeys.add(key);
         warnings.push({
           roadId: road.id,
+          // roadMidpoint is consumed by the controller to attempt a per-issue detour.
+          // We use the road's own geometry midpoint (not the route point near it) so
+          // that the perpendicular shift in createDetourWaypoint lands off the road.
+          roadMidpoint: getRoadMidpoint(road.geometry),
           ...violation,
         });
+
+        // Keep one unsafe point per warning in the same order.
+        // point: [lat, lon] on the actual route polyline.
+        unsafePoints.push(routePointLatLon);
       }
 
       break;

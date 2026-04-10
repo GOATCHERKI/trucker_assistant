@@ -14,7 +14,7 @@ import MapLegend from './MapLegend';
 
 const DEFAULT_CENTER = [51.505, -0.09];
 const DEFAULT_ZOOM = 11;
-const UNSAFE_SEGMENT_THRESHOLD_METERS = 90;
+const UNSAFE_SEGMENT_THRESHOLD_METERS = 150;
 
 function MapClickHandler({ onMapClick }) {
   useMapEvents({
@@ -84,6 +84,7 @@ function getMarkerPopupIcon(type) {
   return '❗';
 }
 
+// point: [lat, lon], referenceLat in degrees
 function toProjectedPoint([lat, lon], referenceLat) {
   const latRad = (referenceLat * Math.PI) / 180;
   const metersPerDegLat = 111320;
@@ -95,6 +96,7 @@ function toProjectedPoint([lat, lon], referenceLat) {
   };
 }
 
+// point/segmentStart/segmentEnd: [lat, lon] -> returns meters
 function pointToSegmentDistanceMeters(point, segmentStart, segmentEnd) {
   const referenceLat = (segmentStart[0] + segmentEnd[0]) / 2;
   const p = toProjectedPoint(point, referenceLat);
@@ -125,6 +127,7 @@ function MapView({ start, end, fastestRouteCoordinates, safeRouteCoordinates, un
   const [showFastestRoute, setShowFastestRoute] = useState(true);
   const [showSafeRoute, setShowSafeRoute] = useState(true);
 
+  // marker.position is [lat, lon] for Leaflet Marker/Polyline usage.
   const unsafePoints = useMemo(
     () => unsafeMarkers.map((marker) => marker.position),
     [unsafeMarkers],
@@ -135,6 +138,7 @@ function MapView({ start, end, fastestRouteCoordinates, safeRouteCoordinates, un
       return [];
     }
 
+    // fastestRouteCoordinates and unsafePoints are both [lat, lon].
     return fastestRouteCoordinates.slice(0, -1).map((startPoint, index) => {
       const endPoint = fastestRouteCoordinates[index + 1];
       const isUnsafe = unsafePoints.some(

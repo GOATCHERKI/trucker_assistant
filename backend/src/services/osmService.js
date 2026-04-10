@@ -10,19 +10,40 @@ const OVERPASS_FALLBACK_URLS = process.env.OVERPASS_FALLBACK_URLS
   : [];
 
 // All URLs to attempt (primary first, then fallbacks)
-const ALL_OVERPASS_URLS = [OVERPASS_URL, ...OVERPASS_FALLBACK_URLS];
+const ALL_OVERPASS_URLS = [...new Set([OVERPASS_URL, ...OVERPASS_FALLBACK_URLS])];
 const OVERPASS_TIMEOUT_MS = Number(process.env.OVERPASS_TIMEOUT_MS) || 15000;
 const OVERPASS_MAX_RETRIES = Number(process.env.OVERPASS_MAX_RETRIES) || 2;
+const OVERPASS_QUERY_TIMEOUT_SECONDS =
+  Number(process.env.OVERPASS_QUERY_TIMEOUT_SECONDS) || 12;
+const OVERPASS_BBOX_PADDING = Number(process.env.OVERPASS_BBOX_PADDING) || 0.003;
+const OVERPASS_MAX_BBOX_SPAN_DEGREES =
+  Number(process.env.OVERPASS_MAX_BBOX_SPAN_DEGREES) || 0.2;
+const OVERPASS_FAILURE_COOLDOWN_MS =
+  Number(process.env.OVERPASS_FAILURE_COOLDOWN_MS) || 120000;
+const OVERPASS_RATE_LIMIT_COOLDOWN_MS =
+  Number(process.env.OVERPASS_RATE_LIMIT_COOLDOWN_MS) || 300000;
+
+let overpassCooldownUntil = 0;
 
 function buildOverpassQuery([minLon, minLat, maxLon, maxLat]) {
   return `
-    [out:json][timeout:25];
+    [out:json][timeout:${OVERPASS_QUERY_TIMEOUT_SECONDS}];
     (
       way["highway"]["maxheight"](${minLat},${minLon},${maxLat},${maxLon});
       way["highway"]["maxweight"](${minLat},${minLon},${maxLat},${maxLon});
     );
     out tags geom;
   `;
+}
+
+function isBboxTooLarge([minLon, minLat, maxLon, maxLat]) {
+  const latSpan = Math.abs(maxLat - minLat);
+  const lonSpan = Math.abs(maxLon - minLon);
+
+  return (
+    latSpan > OVERPASS_MAX_BBOX_SPAN_DEGREES ||
+    lonSpan > OVERPASS_MAX_BBOX_SPAN_DEGREES
+  );
 }
 
 function mapOverpassToRoads(elements) {
@@ -38,9 +59,10 @@ function mapOverpassToRoads(elements) {
       continue;
     }
 
+    // geometry: Array<[lon, lat]> (GeoJSON), preserved for downstream consistency
     const geometry = (element.geometry || []).map((point) => [
-      point.lat,
       point.lon,
+      point.lat,
     ]);
 
     roads.push({
@@ -56,6 +78,18 @@ function mapOverpassToRoads(elements) {
 }
 
 async function getRoadsInBbox(bbox) {
+  if (Date.now() < overpassCooldownUntil) {
+    return [];
+  }
+
+  if (isBboxTooLarge(bbox)) {
+    console.warn(
+      `Skipping Overpass query due to large bbox span. max span allowed: ${OVERPASS_MAX_BBOX_SPAN_DEGREES}`,
+      { bbox },
+    );
+    return [];
+  }
+
   const query = buildOverpassQuery(bbox);
 
   let lastError;
@@ -68,13 +102,26 @@ async function getRoadsInBbox(bbox) {
           },
           timeout: OVERPASS_TIMEOUT_MS,
         });
+        overpassCooldownUntil = 0;
         return mapOverpassToRoads(response.data.elements || []);
       } catch (error) {
         lastError = error;
         const status = error.response?.status;
-        // Don't retry 4xx client-side errors on other mirrors.
-        if (status && status < 500) {
-          throw error;
+
+        if (status === 429) {
+          overpassCooldownUntil = Date.now() + OVERPASS_RATE_LIMIT_COOLDOWN_MS;
+          console.warn(
+            `Overpass API rate-limited at ${url}. Entering cooldown for ${Math.round(OVERPASS_RATE_LIMIT_COOLDOWN_MS / 1000)}s.`,
+          );
+          continue;
+        }
+
+        // For non-rate-limit 4xx responses, don't crash the request.
+        if (status && status >= 400 && status < 500) {
+          console.warn(
+            `Overpass API client error at ${url}: ${status}. Skipping constraints for this request.`,
+          );
+          continue;
         }
 
         console.warn(
@@ -85,6 +132,10 @@ async function getRoadsInBbox(bbox) {
   }
 
   // Degrade gracefully instead of failing route calculation entirely.
+  overpassCooldownUntil = Math.max(
+    overpassCooldownUntil,
+    Date.now() + OVERPASS_FAILURE_COOLDOWN_MS,
+  );
   console.error(
     `All Overpass API servers failed after ${OVERPASS_MAX_RETRIES} attempt(s). Returning empty constraints. Last error: ${lastError?.message}`,
   );
@@ -93,7 +144,7 @@ async function getRoadsInBbox(bbox) {
 }
 
 async function getRoadConstraintsForRoute(routeCoordinatesLonLat) {
-  const bbox = getBoundingBoxFromRoute(routeCoordinatesLonLat, 0.01);
+  const bbox = getBoundingBoxFromRoute(routeCoordinatesLonLat, OVERPASS_BBOX_PADDING);
   return getRoadsInBbox(bbox);
 }
 

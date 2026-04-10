@@ -50,7 +50,6 @@ function extractValues(message, type) {
 }
 
 export function transformWarnings(rawWarnings = []) {
-  const seen = new Set();
   return rawWarnings
     .map((warning, index) => {
       const rawMessage =
@@ -61,17 +60,12 @@ export function transformWarnings(rawWarnings = []) {
         return null;
       }
 
-      // Deduplicate by message content to avoid showing same warning multiple times
-      if (seen.has(message)) {
-        return null;
-      }
-      seen.add(message);
-
       const type = detectWarningType(message, warning?.type);
       const { truckValue, maxValue } = extractValues(message, type);
 
       return {
         id: String(index),
+        sourceIndex: index,
         type,
         message,
         maxValue,

@@ -1,10 +1,13 @@
 const {
   getRoute,
   getRouteWithWaypoints,
-  createDetourWaypoints,
+  createDetourWaypoint,
 } = require("../services/routingService");
 const { getRoadConstraintsForRoute } = require("../services/osmService");
 const { evaluateRouteSafety } = require("../services/safetyService");
+
+const MAX_ALTERNATIVE_DISTANCE_FACTOR =
+  Number(process.env.MAX_ALTERNATIVE_DISTANCE_FACTOR) || 1.45;
 
 function isValidCoordinate(point) {
   return (
@@ -54,6 +57,59 @@ function validatePayload(body) {
   return null;
 }
 
+/**
+ * Tries to find a detour waypoint for a single unsafe point and validates that
+ * the resulting route is not excessively longer than the fastest route.
+ *
+ * Returns:
+ *   { solved: true,  waypoint, route }   — detour found and within distance limit
+ *   { solved: false, reason }            — no viable detour
+ */
+async function tryDetourForPoint(
+  unsafePoint,
+  start,
+  end,
+  fastestRoute,
+  routeCoordinatesLonLat,
+) {
+  const waypoint = createDetourWaypoint(unsafePoint, routeCoordinatesLonLat);
+
+  if (!waypoint) {
+    return {
+      solved: false,
+      reason: "Could not compute a detour waypoint for this location.",
+    };
+  }
+
+  try {
+    const detourRoute = await getRouteWithWaypoints(start, end, [waypoint]);
+
+    if (
+      detourRoute.distance >
+      fastestRoute.distance * MAX_ALTERNATIVE_DISTANCE_FACTOR
+    ) {
+      return {
+        solved: false,
+        reason: `Detour is too long (>${MAX_ALTERNATIVE_DISTANCE_FACTOR}x the fastest route). No practical alternative road exists near this restriction.`,
+        waypoint,
+      };
+    }
+
+    return { solved: true, waypoint, route: detourRoute };
+  } catch (err) {
+    console.error("[tryDetourForPoint] OSRM error:", err.message, {
+      waypoint,
+      start,
+      end,
+    });
+    return {
+      solved: false,
+      reason: `No routable path found through the detour waypoint: ${err.message}`,
+      waypoint,
+    };
+  }
+}
+
 async function getSafeRoute(req, res, next) {
   try {
     const validationError = validatePayload(req.body);
@@ -63,8 +119,8 @@ async function getSafeRoute(req, res, next) {
 
     const { start, end, truck, unsafePoints: inputUnsafePoints } = req.body;
 
-    const route = await getRoute(start, end);
-    const routeCoordinatesLonLat = route.geometry.coordinates;
+    const fastestRoute = await getRoute(start, end);
+    const routeCoordinatesLonLat = fastestRoute.geometry.coordinates;
     const roads = await getRoadConstraintsForRoute(routeCoordinatesLonLat);
 
     const safety = evaluateRouteSafety({
@@ -73,46 +129,95 @@ async function getSafeRoute(req, res, next) {
       truck,
     });
 
-    const fastestRoute = route;
-    let responseRoute = route;
+    // If the caller supplied explicit unsafePoints use those; otherwise derive
+    // one entry per warning from the safety analysis.
+    const issuePoints =
+      Array.isArray(inputUnsafePoints) && inputUnsafePoints.length
+        ? inputUnsafePoints.map((pt) => ({ roadId: null, roadMidpoint: pt }))
+        : safety.warnings.filter((w) => w.roadMidpoint);
+
+    // ── Per-issue detour attempts ──────────────────────────────────────────
+    // We resolve every issue independently and then build a combined route
+    // from all waypoints that individually produced a valid detour.
+
+    const issueResults = await Promise.all(
+      issuePoints.map(async (issue) => {
+        const result = await tryDetourForPoint(
+          issue.roadMidpoint,
+          start,
+          end,
+          fastestRoute,
+          routeCoordinatesLonLat,
+        );
+        return {
+          roadId: issue.roadId ?? null,
+          type: issue.type ?? null,
+          message: issue.message ?? null,
+          roadMidpoint: issue.roadMidpoint,
+          ...result,
+        };
+      }),
+    );
+
+    // ── Build combined safe route from all solved waypoints ───────────────
+    const solvedWaypoints = issueResults
+      .filter((r) => r.solved)
+      .map((r) => r.waypoint);
+
     let safeRoute = null;
     let routeLabel = "original_route";
-    let alternative = null;
+    let responseRoute = fastestRoute;
+    let combinedRouteError = null;
 
-    const rerouteUnsafePoints =
-      Array.isArray(inputUnsafePoints) && inputUnsafePoints.length
-        ? inputUnsafePoints
-        : safety.unsafePoints;
+    if (solvedWaypoints.length > 0) {
+      try {
+        const combined = await getRouteWithWaypoints(
+          start,
+          end,
+          solvedWaypoints,
+        );
 
-    if (rerouteUnsafePoints.length) {
-      const detourWaypoints = createDetourWaypoints(rerouteUnsafePoints);
-
-      if (detourWaypoints.length) {
-        try {
-          const alternativeRoute = await getRouteWithWaypoints(
-            start,
-            end,
-            detourWaypoints,
-          );
-
-          responseRoute = alternativeRoute;
-          safeRoute = alternativeRoute;
+        if (
+          combined.distance <=
+          fastestRoute.distance * MAX_ALTERNATIVE_DISTANCE_FACTOR
+        ) {
+          safeRoute = combined;
+          responseRoute = combined;
           routeLabel = "safe_alternative_route";
-          alternative = {
-            applied: true,
-            waypointsUsed: detourWaypoints.length,
-            detourWaypoints,
-          };
-        } catch (rerouteError) {
-          alternative = {
-            applied: false,
-            reason: rerouteError.message,
-            waypointsUsed: detourWaypoints.length,
-            detourWaypoints,
-          };
+        } else {
+          // Combined route is too long even though individual detours were ok —
+          // fall back to the single-issue route that is shortest.
+          const bestSingle = issueResults
+            .filter((r) => r.solved)
+            .sort((a, b) => a.route.distance - b.route.distance)[0];
+
+          safeRoute = bestSingle.route;
+          responseRoute = bestSingle.route;
+          routeLabel = "safe_alternative_route";
+          combinedRouteError =
+            "Combined waypoint route exceeded distance limit; using best single-issue detour instead.";
+        }
+      } catch (err) {
+        console.error("[getSafeRoute] Combined route failed:", err.message);
+        combinedRouteError = `Combined waypoint route failed: ${err.message}`;
+
+        // Fall back to best individual detour
+        const bestSingle = issueResults
+          .filter((r) => r.solved)
+          .sort((a, b) => a.route.distance - b.route.distance)[0];
+
+        if (bestSingle) {
+          safeRoute = bestSingle.route;
+          responseRoute = bestSingle.route;
+          routeLabel = "safe_alternative_route";
         }
       }
     }
+
+    // Strip the internal roadMidpoint from warnings before sending to client
+    const clientWarnings = safety.warnings.map(
+      ({ roadMidpoint, ...rest }) => rest,
+    );
 
     return res.json({
       route: {
@@ -134,14 +239,37 @@ async function getSafeRoute(req, res, next) {
             }
           : null,
       },
-      safety,
+      safety: {
+        ...safety,
+        warnings: clientWarnings,
+      },
       metadata: {
         roadsAnalyzed: roads.length,
         routeLabel,
-        alternative,
+        combinedRouteError: combinedRouteError ?? undefined,
+        // Per-issue detour outcomes — one entry per unsafe road
+        issueResults: issueResults.map(
+          ({
+            roadId,
+            type,
+            message,
+            roadMidpoint,
+            solved,
+            reason,
+            waypoint,
+          }) => ({
+            roadId,
+            type,
+            message,
+            roadMidpoint,
+            solved,
+            ...(solved ? { waypoint } : { reason }),
+          }),
+        ),
       },
     });
   } catch (error) {
+    console.error("[getSafeRoute] Unhandled error:", error);
     return next(error);
   }
 }
