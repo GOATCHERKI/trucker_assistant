@@ -1,4 +1,4 @@
-# Truck Tracker
+# Truck Route Assistant
 
 ### Smart Truck Route Safety and Detour Planner
 
