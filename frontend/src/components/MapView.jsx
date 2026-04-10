@@ -12,8 +12,8 @@ import {
 } from 'react-leaflet';
 import MapLegend from './MapLegend';
 
-const DEFAULT_CENTER = [51.505, -0.09];
-const DEFAULT_ZOOM = 11;
+const DEFAULT_CENTER = [41, 29];
+const DEFAULT_ZOOM = 10;
 const UNSAFE_SEGMENT_THRESHOLD_METERS = 150;
 
 function MapClickHandler({ onMapClick }) {
